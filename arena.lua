@@ -33,7 +33,7 @@ StateChangeTime = StateChangeTime or undefined
 -- State durations (in milliseconds)
 WaitTime = WaitTime or 2 * 60 * 1000 -- 2 minutes
 GameTime = GameTime or 20 * 60 * 1000 -- 20 minutes
-Now = Now or undefined -- Current time, updated on every message.
+Now = Now or nil -- Current time, updated on every message.
 
 -- Token information for player stakes.
 UNIT = 1000
@@ -58,7 +58,7 @@ PlayerInitState = PlayerInitState or {}
 -- Sends a state change announcement to all registered listeners.
 -- @param event: The event type or name.
 -- @param description: Description of the event.
-function announce(event, description)
+local function announce(event, description)
     for ix, address in pairs(Listeners) do
         ao.send({
             Target = address,
@@ -74,7 +74,7 @@ end
 -- @param recipient: The player receiving the reward.
 -- @param qty: The quantity of the reward.
 -- @param reason: The reason for the reward.
-function sendReward(recipient, qty, reason)
+local function sendReward(recipient, qty, reason)
     if type(qty) ~= number then
       qty = tonumber(qty)
     end
@@ -94,7 +94,7 @@ function sendReward(recipient, qty, reason)
 end
 
 -- Starts the waiting period for players to become ready to play.
-function startWaitingPeriod()
+local function startWaitingPeriod()
     GameMode = "Waiting"
     StateChangeTime = Now + WaitTime
     announce("Started-Waiting-Period", "The game is about to begin! Send your token to take part.")
@@ -102,7 +102,7 @@ function startWaitingPeriod()
 end
 
 -- Starts the game if there are enough players.
-function startGamePeriod()
+local function startGamePeriod()
     local paidPlayers = 0
     for player, hasPaid in pairs(Waiting) do
         if hasPaid then
@@ -144,7 +144,7 @@ end
 -- Handles the elimination of a player from the game.
 -- @param eliminated: The player to be eliminated.
 -- @param eliminator: The player causing the elimination.
-function eliminatePlayer(eliminated, eliminator)
+local function eliminatePlayer(eliminated, eliminator)
     sendReward(eliminator, PaymentQty, "Eliminated-Player")
     Waiting[eliminated] = false
     Players[eliminated] = nil
@@ -170,7 +170,7 @@ function eliminatePlayer(eliminated, eliminator)
 end
 
 -- Ends the current game and starts a new one.
-function endGame()
+local function endGame()
     print("Game Over")
 
     Winners = 0
@@ -195,7 +195,7 @@ end
 
 -- Removes a listener from the listeners' list.
 -- @param listener: The listener to be removed.
-function removeListener(listener)
+local function removeListener(listener)
     local idx = 0
     for i, v in ipairs(Listeners) do
         if v == listener then
@@ -219,12 +219,17 @@ Handlers.add(
     function(Msg)
         Now = Msg.Timestamp
         if GameMode == "Not-Started" then
+            print("game not started...")
             startWaitingPeriod()
         elseif GameMode == "Waiting" then
+            print("game waiting...")
             if Now > StateChangeTime then
                 startGamePeriod()
+            else
+                print("It is not time to start the game yet." .. " Time remaining: " .. (StateChangeTime - Now) .. "ms.")
             end
         elseif GameMode == "Playing" then
+            print("game playing...")
             if onTick and type(onTick) == "function" then
               onTick()
             end
@@ -238,19 +243,20 @@ Handlers.add(
 -- Handler for player deposits to participate in the next game.
 Handlers.add(
     "Transfer",
+    -- function(Msg)
+    --     return
+    --         Msg.Action == "Credit-Notice" and
+    --         Msg.From == PaymentToken and
+    --         tonumber(Msg.Quantity) >= tonumber(PaymentQty) and "continue"
+    -- end,
+    Handlers.utils.hasMatchingTag("Action", "Transfer"),
     function(Msg)
-        return
-            Msg.Action == "Credit-Notice" and
-            Msg.From == PaymentToken and
-            tonumber(Msg.Quantity) >= tonumber(PaymentQty) and "continue"
-    end,
-    function(Msg)
-        Waiting[Msg.Sender] = true
+        Waiting[Msg.From] = true
         ao.send({
-            Target = Msg.Sender,
+            Target = Msg.From,
             Action = "Payment-Received"
         })
-        announce("Player-Ready", Msg.Sender .. " is ready to play!")
+        announce("Player-Ready", Msg.From .. " is ready to play!")
     end
 )
 
